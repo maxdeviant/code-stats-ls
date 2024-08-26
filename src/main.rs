@@ -22,6 +22,7 @@ struct PulseXp {
 
 struct CodeStatsLanguageServer {
     client: Client,
+    http_client: reqwest::Client,
     api_token: String,
     xp_gained_by_language: Mutex<HashMap<String, u32>>,
 }
@@ -48,7 +49,6 @@ impl CodeStatsLanguageServer {
     }
 
     async fn send_pulse(&self, xp_gained: Vec<(String, u32)>) {
-        let client = reqwest::Client::new();
         let url = "https://codestats.net/api/my/pulses";
 
         let pulse = Pulse {
@@ -59,7 +59,8 @@ impl CodeStatsLanguageServer {
                 .collect(),
         };
 
-        match client
+        match self
+            .http_client
             .post(url)
             .header("X-API-Token", &self.api_token)
             .json(&pulse)
@@ -164,6 +165,7 @@ async fn main() {
 
     let (service, socket) = LspService::new(|client| CodeStatsLanguageServer {
         client,
+        http_client: reqwest::Client::new(),
         xp_gained_by_language: Mutex::new(HashMap::new()),
         api_token,
     });
