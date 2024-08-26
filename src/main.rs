@@ -12,36 +12,6 @@ struct CodeStatsLanguageServer {
     api_token: String,
 }
 
-#[tower_lsp::async_trait]
-impl LanguageServer for CodeStatsLanguageServer {
-    async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
-        Ok(InitializeResult::default())
-    }
-
-    async fn initialized(&self, _params: InitializedParams) {
-        self.client
-            .log_message(MessageType::INFO, "Code::Stats language server initialized")
-            .await;
-    }
-
-    async fn shutdown(&self) -> Result<()> {
-        Ok(())
-    }
-
-    async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        let content_changes = params.content_changes;
-        let xp_gained = content_changes.len() as u32;
-
-        let mut xp_count = self.xp_count.lock().await;
-        *xp_count += xp_gained;
-
-        if *xp_count >= 100 {
-            self.send_pulse(*xp_count).await;
-            *xp_count = 0;
-        }
-    }
-}
-
 impl CodeStatsLanguageServer {
     async fn send_pulse(&self, gained_xp: u32) {
         let client = reqwest::Client::new();
@@ -83,6 +53,36 @@ impl CodeStatsLanguageServer {
                     )
                     .await;
             }
+        }
+    }
+}
+
+#[tower_lsp::async_trait]
+impl LanguageServer for CodeStatsLanguageServer {
+    async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
+        Ok(InitializeResult::default())
+    }
+
+    async fn initialized(&self, _params: InitializedParams) {
+        self.client
+            .log_message(MessageType::INFO, "Code::Stats language server initialized")
+            .await;
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let content_changes = params.content_changes;
+        let xp_gained = content_changes.len() as u32;
+
+        let mut xp_count = self.xp_count.lock().await;
+        *xp_count += xp_gained;
+
+        if *xp_count >= 100 {
+            self.send_pulse(*xp_count).await;
+            *xp_count = 0;
         }
     }
 }
