@@ -1,2 +1,3 @@
 # code-stats-ls
-A language server for Code::Stats
+
+A language server for [Code::Stats](https://codestats.net/).
