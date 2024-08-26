@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::Local;
 use dotenv::dotenv;
 use serde_json::json;
 use tokio::sync::Mutex;
@@ -18,7 +18,7 @@ impl CodeStatsLanguageServer {
         let url = "https://codestats.net/api/my/pulses";
 
         let payload = json!({
-            "coded_at": Utc::now().to_rfc3339(),
+            "coded_at": Local::now().to_rfc3339(),
             "xps": [
                 {
                     "language": "Rust",
