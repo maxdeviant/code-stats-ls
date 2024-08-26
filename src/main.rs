@@ -1,36 +1,68 @@
+use std::collections::HashMap;
+
 use chrono::Local;
 use dotenv::dotenv;
-use serde_json::json;
+use serde::Serialize;
 use tokio::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
+#[derive(Debug, Serialize)]
+struct Pulse {
+    coded_at: String,
+    xps: Vec<PulseXp>,
+}
+
+#[derive(Debug, Serialize)]
+struct PulseXp {
+    pub language: String,
+    pub xp: u32,
+}
+
 struct CodeStatsLanguageServer {
     client: Client,
-    xp_count: Mutex<u32>,
     api_token: String,
+    xp_gained_by_language: Mutex<HashMap<String, u32>>,
 }
 
 impl CodeStatsLanguageServer {
-    async fn send_pulse(&self, gained_xp: u32) {
+    fn language_for_document_uri(&self, uri: &Url) -> Option<String> {
+        let filename = uri.path().split('/').last().unwrap_or("");
+        let extension = filename.split('.').last().unwrap_or("");
+
+        match extension {
+            "gleam" => Some("Gleam".to_string()),
+            "html" => Some("HTML".to_string()),
+            "js" => Some("JavaScript".to_string()),
+            "json" => Some("JSON".to_string()),
+            "jsx" => Some("JavaScript (React)".to_string()),
+            "md" | "markdown" => Some("Markdown".to_string()),
+            "rs" => Some("Rust".to_string()),
+            "toml" => Some("TOML".to_string()),
+            "ts" => Some("TypeScript".to_string()),
+            "tsx" => Some("TypeScript (React)".to_string()),
+            "yaml" | "yml" => Some("YAML".to_string()),
+            _ => None,
+        }
+    }
+
+    async fn send_pulse(&self, xp_gained: Vec<(String, u32)>) {
         let client = reqwest::Client::new();
         let url = "https://codestats.net/api/my/pulses";
 
-        let payload = json!({
-            "coded_at": Local::now().to_rfc3339(),
-            "xps": [
-                {
-                    "language": "Rust",
-                    "xp": gained_xp
-                }
-            ]
-        });
+        let pulse = Pulse {
+            coded_at: Local::now().to_rfc3339(),
+            xps: xp_gained
+                .into_iter()
+                .map(|(language, xp)| PulseXp { language, xp })
+                .collect(),
+        };
 
         match client
             .post(url)
             .header("X-API-Token", &self.api_token)
-            .json(&payload)
+            .json(&pulse)
             .send()
             .await
         {
@@ -86,15 +118,36 @@ impl LanguageServer for CodeStatsLanguageServer {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let Some(language) = self.language_for_document_uri(&params.text_document.uri) else {
+            self.client
+                .log_message(
+                    MessageType::WARNING,
+                    format!("No language for file: {}", params.text_document.uri.path()),
+                )
+                .await;
+
+            return;
+        };
+
         let content_changes = params.content_changes;
         let xp_gained = content_changes.len() as u32;
 
-        let mut xp_count = self.xp_count.lock().await;
-        *xp_count += xp_gained;
+        let mut xp_gained_by_language = self.xp_gained_by_language.lock().await;
+        let send_pulse = {
+            let total_xp_gained = xp_gained_by_language.entry(language).or_insert(0);
+            *total_xp_gained += xp_gained;
 
-        if *xp_count >= 100 {
-            self.send_pulse(*xp_count).await;
-            *xp_count = 0;
+            *total_xp_gained >= 100
+        };
+
+        if send_pulse {
+            let pulse = xp_gained_by_language
+                .iter()
+                .map(|(language, xp)| (language.clone(), *xp))
+                .collect();
+
+            self.send_pulse(pulse).await;
+            xp_gained_by_language.clear();
         }
     }
 }
@@ -111,7 +164,7 @@ async fn main() {
 
     let (service, socket) = LspService::new(|client| CodeStatsLanguageServer {
         client,
-        xp_count: Mutex::new(0),
+        xp_gained_by_language: Mutex::new(HashMap::new()),
         api_token,
     });
 
