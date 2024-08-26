@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use chrono::Local;
 use dotenv::dotenv;
 use serde::Serialize;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -24,7 +26,8 @@ struct CodeStatsLanguageServer {
     client: Client,
     http_client: reqwest::Client,
     api_token: String,
-    xp_gained_by_language: Mutex<HashMap<String, u32>>,
+    xp_gained_by_language: Arc<Mutex<HashMap<String, u32>>>,
+    pulse_tx: mpsc::Sender<()>,
 }
 
 impl CodeStatsLanguageServer {
@@ -48,14 +51,19 @@ impl CodeStatsLanguageServer {
         }
     }
 
-    async fn send_pulse(&self, xp_gained: Vec<(String, u32)>) {
+    async fn send_pulse(&self) {
         let url = "https://codestats.net/api/my/pulses";
+
+        let mut xp_gained_by_language = self.xp_gained_by_language.lock().await;
 
         let pulse = Pulse {
             coded_at: Local::now().to_rfc3339(),
-            xps: xp_gained
-                .into_iter()
-                .map(|(language, xp)| PulseXp { language, xp })
+            xps: xp_gained_by_language
+                .iter()
+                .map(|(language, xp)| PulseXp {
+                    language: language.clone(),
+                    xp: *xp,
+                })
                 .collect(),
         };
 
@@ -72,6 +80,8 @@ impl CodeStatsLanguageServer {
                     self.client
                         .log_message(MessageType::INFO, "XP pulse sent successfully")
                         .await;
+
+                    xp_gained_by_language.clear();
                 } else {
                     self.client
                         .log_message(MessageType::ERROR, "Failed to send XP pulse")
@@ -134,22 +144,10 @@ impl LanguageServer for CodeStatsLanguageServer {
         let xp_gained = content_changes.len() as u32;
 
         let mut xp_gained_by_language = self.xp_gained_by_language.lock().await;
-        let send_pulse = {
-            let total_xp_gained = xp_gained_by_language.entry(language).or_insert(0);
-            *total_xp_gained += xp_gained;
+        let total_xp_gained = xp_gained_by_language.entry(language).or_insert(0);
+        *total_xp_gained += xp_gained;
 
-            *total_xp_gained >= 100
-        };
-
-        if send_pulse {
-            let pulse = xp_gained_by_language
-                .iter()
-                .map(|(language, xp)| (language.clone(), *xp))
-                .collect();
-
-            self.send_pulse(pulse).await;
-            xp_gained_by_language.clear();
-        }
+        self.pulse_tx.send(()).await.ok();
     }
 }
 
@@ -163,11 +161,31 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| CodeStatsLanguageServer {
-        client,
-        http_client: reqwest::Client::new(),
-        xp_gained_by_language: Mutex::new(HashMap::new()),
-        api_token,
+    let (pulse_tx, mut pulse_rx) = mpsc::channel::<()>(100);
+
+    let (service, socket) = LspService::new(|client| {
+        Arc::new(CodeStatsLanguageServer {
+            client,
+            http_client: reqwest::Client::new(),
+            xp_gained_by_language: Arc::new(Mutex::new(HashMap::new())),
+            api_token,
+            pulse_tx,
+        })
+    });
+
+    tokio::spawn({
+        let server = service.inner().clone();
+        async move {
+            let mut last_pulse_at = Instant::now();
+            let debounce_duration = Duration::from_secs(10);
+
+            while pulse_rx.recv().await.is_some() {
+                if last_pulse_at.elapsed() >= debounce_duration {
+                    server.send_pulse().await;
+                    last_pulse_at = Instant::now();
+                }
+            }
+        }
     });
 
     Server::new(stdin, stdout, socket).serve(service).await;
