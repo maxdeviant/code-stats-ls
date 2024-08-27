@@ -4,7 +4,9 @@ A language server for [Code::Stats](https://codestats.net/).
 
 ## Installation
 
-To install the Code::Stats language server, run the following:
+See the [releases](https://github.com/maxdeviant/code-stats-ls/releases) page for pre-built binaries.
+
+If you would like to install the Code::Stats language server from source you can run:
 
 ```sh
 git clone git@github.com:maxdeviant/code-stats-ls.git
