@@ -25,12 +25,29 @@ struct PulseXp {
 struct CodeStatsLanguageServer {
     client: Client,
     http_client: reqwest::Client,
+    api_url: Url,
     api_token: String,
     xp_gained_by_language: Arc<Mutex<HashMap<String, u32>>>,
     pulse_tx: mpsc::Sender<()>,
 }
 
 impl CodeStatsLanguageServer {
+    pub fn new(
+        client: Client,
+        api_url: Url,
+        api_token: String,
+        pulse_tx: mpsc::Sender<()>,
+    ) -> Self {
+        Self {
+            client,
+            http_client: reqwest::Client::new(),
+            api_url,
+            api_token,
+            xp_gained_by_language: Arc::new(Mutex::new(HashMap::new())),
+            pulse_tx,
+        }
+    }
+
     fn language_for_document_uri(&self, uri: &Url) -> Option<String> {
         let filename = uri.path().split('/').last().unwrap_or("");
         let extension = filename.split('.').last().unwrap_or("");
@@ -72,7 +89,8 @@ impl CodeStatsLanguageServer {
     }
 
     async fn send_pulse(&self) {
-        let url = "https://codestats.net/api/my/pulses";
+        let mut pulse_url = self.api_url.clone();
+        pulse_url.set_path("/api/my/pulses");
 
         let mut xp_gained_by_language = self.xp_gained_by_language.lock().await;
 
@@ -89,7 +107,7 @@ impl CodeStatsLanguageServer {
 
         match self
             .http_client
-            .post(url)
+            .post(pulse_url)
             .header("X-API-Token", &self.api_token)
             .json(&pulse)
             .send()
@@ -175,6 +193,9 @@ impl LanguageServer for CodeStatsLanguageServer {
 async fn main() {
     dotenv().ok();
 
+    let api_url =
+        std::env::var("CODE_STATS_API_URL").unwrap_or("https://codestats.net".to_string());
+    let api_url = Url::parse(&api_url).expect("Invalid API URL");
     let api_token =
         std::env::var("CODE_STATS_API_TOKEN").expect("CODE_STATS_API_TOKEN must be set");
 
@@ -184,13 +205,9 @@ async fn main() {
     let (pulse_tx, mut pulse_rx) = mpsc::channel::<()>(100);
 
     let (service, socket) = LspService::new(|client| {
-        Arc::new(CodeStatsLanguageServer {
-            client,
-            http_client: reqwest::Client::new(),
-            xp_gained_by_language: Arc::new(Mutex::new(HashMap::new())),
-            api_token,
-            pulse_tx,
-        })
+        Arc::new(CodeStatsLanguageServer::new(
+            client, api_url, api_token, pulse_tx,
+        ))
     });
 
     tokio::spawn({
