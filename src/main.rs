@@ -78,6 +78,7 @@ impl CodeStatsLanguageServer {
             "rb" => Some("Ruby".to_string()),
             "rs" => Some("Rust".to_string()),
             "scss" => Some("SCSS".to_string()),
+            "sh" => Some("Shell".to_string()),
             "sql" => Some("SQL".to_string()),
             "toml" => Some("TOML".to_string()),
             "ts" => Some("TypeScript".to_string()),
