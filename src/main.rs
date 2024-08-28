@@ -89,10 +89,12 @@ impl CodeStatsLanguageServer {
     }
 
     async fn send_pulse(&self) {
-        let mut pulse_url = self.api_url.clone();
-        pulse_url.set_path("/api/my/pulses");
-
         let mut xp_gained_by_language = self.xp_gained_by_language.lock().await;
+
+        // If we have no XP to gain, no need to send a pulse.
+        if xp_gained_by_language.is_empty() {
+            return;
+        }
 
         let pulse = Pulse {
             coded_at: Local::now().to_rfc3339(),
@@ -104,6 +106,9 @@ impl CodeStatsLanguageServer {
                 })
                 .collect(),
         };
+
+        let mut pulse_url = self.api_url.clone();
+        pulse_url.set_path("/api/my/pulses");
 
         match self
             .http_client
@@ -204,10 +209,25 @@ async fn main() {
 
     let (pulse_tx, mut pulse_rx) = mpsc::channel::<()>(100);
 
-    let (service, socket) = LspService::new(|client| {
-        Arc::new(CodeStatsLanguageServer::new(
-            client, api_url, api_token, pulse_tx,
-        ))
+    let (service, socket) = LspService::new({
+        let pulse_tx = pulse_tx.clone();
+        |client| {
+            Arc::new(CodeStatsLanguageServer::new(
+                client, api_url, api_token, pulse_tx,
+            ))
+        }
+    });
+
+    // Spawn a task to periodically flush any pending XP in the queue.
+    tokio::spawn({
+        let pulse_tx = pulse_tx.clone();
+        async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(10));
+            loop {
+                interval.tick().await;
+                pulse_tx.send(()).await.ok();
+            }
+        }
     });
 
     tokio::spawn({
