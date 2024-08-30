@@ -18,10 +18,18 @@ cargo install --path .
 
 In order to authenticate with the Code::Stats API, the language server needs to know your API token.
 
-Authentication is handled by environment variables.
+You can generate or retrieve your API token from the [Machines](https://codestats.net/my/machines) page.
 
-You may either add the `CODE_STATS_API_TOKEN` environment variable to your shell, or create a `~/.env` file:
+## Configuration
 
-```
-CODE_STATS_API_TOKEN=<API_TOKEN>
-```
+You can provide configuration to the language server in two ways:
+
+- Via environment variables
+- Via the configuration file (`~/.config/code-stats/config.toml`)
+
+The following values are configurable:
+
+| Name      | `config.toml` key | Environment variable   | Default value           |
+| --------- | ----------------- | ---------------------- | ----------------------- |
+| API Token | `api_token`       | `CODE_STATS_API_TOKEN` | None                    |
+| API URL   | `api_url`         | `CODE_STATS_API_URL`   | `https://codestats.net` |

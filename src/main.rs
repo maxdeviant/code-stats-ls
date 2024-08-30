@@ -1,14 +1,19 @@
+mod config;
+
 use std::collections::HashMap;
+use std::env;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use anyhow::Result;
 use chrono::Local;
-use dotenv::dotenv;
 use serde::Serialize;
 use tokio::sync::{mpsc, Mutex};
-use tower_lsp::jsonrpc::Result;
+use tower_lsp::jsonrpc;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+
+use crate::config::Config;
 
 #[derive(Debug, Serialize)]
 struct Pulse {
@@ -25,24 +30,17 @@ struct PulseXp {
 struct CodeStatsLanguageServer {
     client: Client,
     http_client: reqwest::Client,
-    api_url: Url,
-    api_token: String,
+    config: Config,
     xp_gained_by_language: Arc<Mutex<HashMap<String, u32>>>,
     pulse_tx: mpsc::Sender<()>,
 }
 
 impl CodeStatsLanguageServer {
-    pub fn new(
-        client: Client,
-        api_url: Url,
-        api_token: String,
-        pulse_tx: mpsc::Sender<()>,
-    ) -> Self {
+    pub fn new(client: Client, config: Config, pulse_tx: mpsc::Sender<()>) -> Self {
         Self {
             client,
             http_client: reqwest::Client::new(),
-            api_url,
-            api_token,
+            config,
             xp_gained_by_language: Arc::new(Mutex::new(HashMap::new())),
             pulse_tx,
         }
@@ -148,13 +146,13 @@ impl CodeStatsLanguageServer {
                 .collect(),
         };
 
-        let mut pulse_url = self.api_url.clone();
+        let mut pulse_url = self.config.api_url.clone();
         pulse_url.set_path("/api/my/pulses");
 
         match self
             .http_client
             .post(pulse_url)
-            .header("X-API-Token", &self.api_token)
+            .header("X-API-Token", &self.config.api_token)
             .json(&pulse)
             .send()
             .await
@@ -186,7 +184,7 @@ impl CodeStatsLanguageServer {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for CodeStatsLanguageServer {
-    async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, _params: InitializeParams) -> jsonrpc::Result<InitializeResult> {
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
                 name: env!("CARGO_PKG_NAME").to_string(),
@@ -208,7 +206,7 @@ impl LanguageServer for CodeStatsLanguageServer {
             .await;
     }
 
-    async fn shutdown(&self) -> Result<()> {
+    async fn shutdown(&self) -> jsonrpc::Result<()> {
         Ok(())
     }
 
@@ -236,14 +234,8 @@ impl LanguageServer for CodeStatsLanguageServer {
 }
 
 #[tokio::main]
-async fn main() {
-    dotenv().ok();
-
-    let api_url =
-        std::env::var("CODE_STATS_API_URL").unwrap_or("https://codestats.net".to_string());
-    let api_url = Url::parse(&api_url).expect("Invalid API URL");
-    let api_token =
-        std::env::var("CODE_STATS_API_TOKEN").expect("CODE_STATS_API_TOKEN must be set");
+async fn main() -> Result<()> {
+    let config = Config::read()?;
 
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
@@ -252,11 +244,7 @@ async fn main() {
 
     let (service, socket) = LspService::new({
         let pulse_tx = pulse_tx.clone();
-        |client| {
-            Arc::new(CodeStatsLanguageServer::new(
-                client, api_url, api_token, pulse_tx,
-            ))
-        }
+        |client| Arc::new(CodeStatsLanguageServer::new(client, config, pulse_tx))
     });
 
     // Spawn a task to periodically flush any pending XP in the queue.
@@ -287,4 +275,6 @@ async fn main() {
     });
 
     Server::new(stdin, stdout, socket).serve(service).await;
+
+    Ok(())
 }
