@@ -46,6 +46,14 @@ impl CodeStatsLanguageServer {
         }
     }
 
+    const fn name(&self) -> &'static str {
+        env!("CARGO_PKG_NAME")
+    }
+
+    const fn version(&self) -> &'static str {
+        env!("CARGO_PKG_VERSION")
+    }
+
     fn language_for_document_uri(&self, uri: &Url) -> Option<String> {
         let filename = uri.path().split('/').last().unwrap_or("");
         let extension = filename.split('.').last().unwrap_or("");
@@ -152,6 +160,14 @@ impl CodeStatsLanguageServer {
         match self
             .http_client
             .post(pulse_url)
+            .header(
+                "User-Agent",
+                &format!(
+                    "{name}/{version}",
+                    name = self.name(),
+                    version = self.version()
+                ),
+            )
             .header("X-API-Token", &self.config.api_token)
             .json(&pulse)
             .send()
@@ -187,8 +203,8 @@ impl LanguageServer for CodeStatsLanguageServer {
     async fn initialize(&self, _params: InitializeParams) -> jsonrpc::Result<InitializeResult> {
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
-                name: env!("CARGO_PKG_NAME").to_string(),
-                version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                name: self.name().to_string(),
+                version: Some(self.version().to_string()),
             }),
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
