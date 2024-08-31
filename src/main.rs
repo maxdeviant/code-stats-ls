@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use chrono::Local;
+use clap::Parser;
 use serde::Serialize;
 use tokio::sync::{mpsc, Mutex};
 use tower_lsp::jsonrpc;
@@ -31,16 +32,23 @@ struct CodeStatsLanguageServer {
     client: Client,
     http_client: reqwest::Client,
     config: Config,
+    client_identifier: Option<String>,
     xp_gained_by_language: Arc<Mutex<HashMap<String, u32>>>,
     pulse_tx: mpsc::Sender<()>,
 }
 
 impl CodeStatsLanguageServer {
-    pub fn new(client: Client, config: Config, pulse_tx: mpsc::Sender<()>) -> Self {
+    pub fn new(
+        client: Client,
+        config: Config,
+        client_identifier: Option<String>,
+        pulse_tx: mpsc::Sender<()>,
+    ) -> Self {
         Self {
             client,
             http_client: reqwest::Client::new(),
             config,
+            client_identifier,
             xp_gained_by_language: Arc::new(Mutex::new(HashMap::new())),
             pulse_tx,
         }
@@ -52,6 +60,23 @@ impl CodeStatsLanguageServer {
 
     const fn version(&self) -> &'static str {
         env!("CARGO_PKG_VERSION")
+    }
+
+    fn user_agent(&self) -> String {
+        let mut user_agent = format!(
+            "{name}/{version}",
+            name = self.name(),
+            version = self.version(),
+        );
+
+        if let Some(client) = self.client_identifier.as_ref() {
+            user_agent.push(' ');
+            user_agent.push('(');
+            user_agent.push_str(client);
+            user_agent.push(')');
+        }
+
+        user_agent
     }
 
     fn language_for_document_uri(&self, uri: &Url) -> Option<String> {
@@ -160,14 +185,7 @@ impl CodeStatsLanguageServer {
         match self
             .http_client
             .post(pulse_url)
-            .header(
-                "User-Agent",
-                &format!(
-                    "{name}/{version}",
-                    name = self.name(),
-                    version = self.version()
-                ),
-            )
+            .header("User-Agent", self.user_agent())
             .header("X-API-Token", &self.config.api_token)
             .json(&pulse)
             .send()
@@ -249,8 +267,21 @@ impl LanguageServer for CodeStatsLanguageServer {
     }
 }
 
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    /// The name of the client connecting to the language server.
+    ///
+    /// This is appended to the `User-Agent` header to identify the client
+    /// to the Code::Stats API.
+    #[arg(long)]
+    client: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    let cli = Cli::parse();
+
     let config = Config::read()?;
 
     let stdin = tokio::io::stdin();
@@ -260,7 +291,11 @@ async fn main() -> Result<()> {
 
     let (service, socket) = LspService::new({
         let pulse_tx = pulse_tx.clone();
-        |client| Arc::new(CodeStatsLanguageServer::new(client, config, pulse_tx))
+        |client| {
+            Arc::new(CodeStatsLanguageServer::new(
+                client, config, cli.client, pulse_tx,
+            ))
+        }
     });
 
     // Spawn a task to periodically flush any pending XP in the queue.
