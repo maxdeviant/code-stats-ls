@@ -1,6 +1,6 @@
 [package]
 name = "code-stats-ls"
-version = "0.3.0"
+version = "0.3.1"
 repository = "https://github.com/maxdeviant/code-stats-ls"
 license = "MIT"
 edition = "2021"

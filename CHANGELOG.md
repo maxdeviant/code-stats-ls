@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2024-08-30
+
 ### Added
 
 - Added `User-Agent` header to outgoing requests to the Code::Stats API.
@@ -111,7 +113,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release.
 
-[unreleased]: https://github.com/maxdeviant/code-stats-ls/compare/v0.3.0...HEAD
+[unreleased]: https://github.com/maxdeviant/code-stats-ls/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/maxdeviant/code-stats-ls/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/maxdeviant/code-stats-ls/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/maxdeviant/code-stats-ls/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/maxdeviant/code-stats-ls/compare/v0.1.1...v0.2.0
