@@ -9,7 +9,7 @@ use anyhow::Result;
 use chrono::Local;
 use clap::Parser;
 use serde::Serialize;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tower_lsp::jsonrpc;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -32,23 +32,18 @@ struct CodeStatsLanguageServer {
     client: Client,
     http_client: reqwest::Client,
     config: Config,
-    client_identifier: Option<String>,
+    client_info: Arc<RwLock<Option<ClientInfo>>>,
     xp_gained_by_language: Arc<Mutex<HashMap<String, u32>>>,
     pulse_tx: mpsc::Sender<()>,
 }
 
 impl CodeStatsLanguageServer {
-    pub fn new(
-        client: Client,
-        config: Config,
-        client_identifier: Option<String>,
-        pulse_tx: mpsc::Sender<()>,
-    ) -> Self {
+    pub fn new(client: Client, config: Config, pulse_tx: mpsc::Sender<()>) -> Self {
         Self {
             client,
             http_client: reqwest::Client::new(),
             config,
-            client_identifier,
+            client_info: Arc::new(RwLock::new(None)),
             xp_gained_by_language: Arc::new(Mutex::new(HashMap::new())),
             pulse_tx,
         }
@@ -62,17 +57,23 @@ impl CodeStatsLanguageServer {
         env!("CARGO_PKG_VERSION")
     }
 
-    fn user_agent(&self) -> String {
+    async fn user_agent(&self) -> String {
         let mut user_agent = format!(
             "{name}/{version}",
             name = self.name(),
             version = self.version(),
         );
 
-        if let Some(client) = self.client_identifier.as_ref() {
+        if let Some(client_info) = self.client_info.read().await.as_ref() {
             user_agent.push(' ');
             user_agent.push('(');
-            user_agent.push_str(client);
+            user_agent.push_str(&client_info.name);
+
+            if let Some(version) = client_info.version.as_ref() {
+                user_agent.push(' ');
+                user_agent.push_str(&version);
+            }
+
             user_agent.push(')');
         }
 
@@ -185,7 +186,7 @@ impl CodeStatsLanguageServer {
         match self
             .http_client
             .post(pulse_url)
-            .header("User-Agent", self.user_agent())
+            .header("User-Agent", self.user_agent().await)
             .header("X-API-Token", &self.config.api_token)
             .json(&pulse)
             .send()
@@ -218,7 +219,9 @@ impl CodeStatsLanguageServer {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for CodeStatsLanguageServer {
-    async fn initialize(&self, _params: InitializeParams) -> jsonrpc::Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> jsonrpc::Result<InitializeResult> {
+        *self.client_info.write().await = params.client_info;
+
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
                 name: self.name().to_string(),
@@ -269,18 +272,11 @@ impl LanguageServer for CodeStatsLanguageServer {
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
-struct Cli {
-    /// The name of the client connecting to the language server.
-    ///
-    /// This is appended to the `User-Agent` header to identify the client
-    /// to the Code::Stats API.
-    #[arg(long)]
-    client: Option<String>,
-}
+struct Cli {}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let _cli = Cli::parse();
 
     let config = Config::read()?;
 
@@ -291,11 +287,7 @@ async fn main() -> Result<()> {
 
     let (service, socket) = LspService::new({
         let pulse_tx = pulse_tx.clone();
-        |client| {
-            Arc::new(CodeStatsLanguageServer::new(
-                client, config, cli.client, pulse_tx,
-            ))
-        }
+        |client| Arc::new(CodeStatsLanguageServer::new(client, config, pulse_tx))
     });
 
     // Spawn a task to periodically flush any pending XP in the queue.
