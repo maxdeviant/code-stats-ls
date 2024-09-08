@@ -213,15 +213,6 @@ impl CodeStatsLanguageServer {
     }
 
     async fn send_pulse(&self) {
-        if let Err(err) = self.send_cached_pulses().await {
-            self.client
-                .log_message(
-                    MessageType::ERROR,
-                    format!("Error sending cached XP pulses: {err}"),
-                )
-                .await;
-        }
-
         let mut xp_gained_by_language = self.xp_gained_by_language.lock().await;
 
         // If we have no XP to gain, no need to send a pulse.
@@ -369,6 +360,27 @@ async fn main() -> Result<()> {
             loop {
                 interval.tick().await;
                 pulse_tx.send(()).await.ok();
+            }
+        }
+    });
+
+    // Spawn a task to periodically send any cached pulses.
+    tokio::spawn({
+        let server = service.inner().clone();
+        async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+
+                if let Err(err) = server.send_cached_pulses().await {
+                    server
+                        .client
+                        .log_message(
+                            MessageType::ERROR,
+                            format!("Error sending cached XP pulses: {err}"),
+                        )
+                        .await;
+                }
             }
         }
     });

@@ -65,6 +65,7 @@ impl PulseCache {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn clear(&self) -> Result<()> {
         let mut tx = self.env.write_txn()?;
         self.database.clear(&mut tx)?;
