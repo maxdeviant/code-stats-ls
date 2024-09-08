@@ -266,6 +266,7 @@ impl CodeStatsLanguageServer {
 
         self.http_client
             .post(pulse_url)
+            .timeout(Duration::from_secs(10))
             .header("User-Agent", self.user_agent().await)
             .header("X-API-Token", &self.config.api_token)
             .json(&pulse)
