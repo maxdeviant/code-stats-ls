@@ -193,6 +193,8 @@ impl CodeStatsLanguageServer {
                         .await;
                 }
             }
+
+            tokio::time::sleep(Duration::from_millis(250)).await;
         }
 
         if sent_count > 0 {
