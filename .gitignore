@@ -5,6 +5,8 @@
 # Keep it secret, keep it safe.
 .env
 
+/test_database
+
 #
 # Rust
 #
