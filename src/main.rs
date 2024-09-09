@@ -231,8 +231,6 @@ impl CodeStatsLanguageServer {
                 .collect(),
         };
 
-        self.pulse_cache.save(&pulse).ok();
-
         let mut pulse_url = self.config.api_url.clone();
         pulse_url.set_path("/api/my/pulses");
 
@@ -242,10 +240,11 @@ impl CodeStatsLanguageServer {
                     .log_message(MessageType::INFO, "XP pulse sent successfully")
                     .await;
 
-                self.pulse_cache.remove(&pulse).ok();
                 xp_gained_by_language.clear();
             }
             Err(err) => {
+                self.pulse_cache.save(&pulse).ok();
+
                 self.client
                     .log_message(MessageType::ERROR, format!("Error sending XP pulse: {err}"))
                     .await;
