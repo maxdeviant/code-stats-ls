@@ -239,8 +239,6 @@ impl CodeStatsLanguageServer {
                 self.client
                     .log_message(MessageType::INFO, "XP pulse sent successfully")
                     .await;
-
-                xp_gained_by_language.clear();
             }
             Err(err) => {
                 self.pulse_cache.save(&pulse).ok();
@@ -250,6 +248,8 @@ impl CodeStatsLanguageServer {
                     .await;
             }
         }
+
+        xp_gained_by_language.clear();
     }
 
     async fn send_pulse_internal(&self, pulse: &Pulse) -> Result<()> {
