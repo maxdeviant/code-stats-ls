@@ -1,3 +1,4 @@
+mod cache;
 mod config;
 
 use std::collections::HashMap;
@@ -8,21 +9,22 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use chrono::Local;
 use clap::Parser;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tower_lsp::jsonrpc;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
+use crate::cache::PulseCache;
 use crate::config::Config;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Pulse {
     coded_at: String,
     xps: Vec<PulseXp>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PulseXp {
     pub language: String,
     pub xp: u32,
@@ -35,10 +37,16 @@ struct CodeStatsLanguageServer {
     client_info: Arc<RwLock<Option<ClientInfo>>>,
     xp_gained_by_language: Arc<Mutex<HashMap<String, u32>>>,
     pulse_tx: mpsc::Sender<()>,
+    pulse_cache: Arc<PulseCache>,
 }
 
 impl CodeStatsLanguageServer {
-    pub fn new(client: Client, config: Config, pulse_tx: mpsc::Sender<()>) -> Self {
+    pub fn new(
+        client: Client,
+        config: Config,
+        pulse_tx: mpsc::Sender<()>,
+        pulse_cache: PulseCache,
+    ) -> Self {
         Self {
             client,
             http_client: reqwest::Client::new(),
@@ -46,6 +54,7 @@ impl CodeStatsLanguageServer {
             client_info: Arc::new(RwLock::new(None)),
             xp_gained_by_language: Arc::new(Mutex::new(HashMap::new())),
             pulse_tx,
+            pulse_cache: Arc::new(pulse_cache),
         }
     }
 
@@ -161,6 +170,48 @@ impl CodeStatsLanguageServer {
         }
     }
 
+    async fn send_cached_pulses(&self) -> Result<()> {
+        let pulses = self.pulse_cache.list()?;
+
+        let mut sent_count = 0;
+
+        for pulse in pulses {
+            match self.send_pulse_internal(&pulse).await {
+                Ok(()) => {
+                    self.pulse_cache.remove(&pulse)?;
+                    sent_count += 1;
+                }
+                Err(err) => {
+                    self.client
+                        .log_message(
+                            MessageType::ERROR,
+                            format!(
+                                "Error sending cached XP pulse from {}: {err}",
+                                pulse.coded_at
+                            ),
+                        )
+                        .await;
+                }
+            }
+
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+
+        if sent_count > 0 {
+            self.client
+                .log_message(
+                    MessageType::INFO,
+                    format!(
+                        "Sent {sent_count} cached XP pulse{}",
+                        if sent_count == 1 { "" } else { "s" },
+                    ),
+                )
+                .await;
+        }
+
+        Ok(())
+    }
+
     async fn send_pulse(&self) {
         let mut xp_gained_by_language = self.xp_gained_by_language.lock().await;
 
@@ -183,37 +234,39 @@ impl CodeStatsLanguageServer {
         let mut pulse_url = self.config.api_url.clone();
         pulse_url.set_path("/api/my/pulses");
 
-        match self
-            .http_client
+        match self.send_pulse_internal(&pulse).await {
+            Ok(()) => {
+                self.client
+                    .log_message(MessageType::INFO, "XP pulse sent successfully")
+                    .await;
+            }
+            Err(err) => {
+                self.pulse_cache.save(&pulse).ok();
+
+                self.client
+                    .log_message(MessageType::ERROR, format!("Error sending XP pulse: {err}"))
+                    .await;
+            }
+        }
+
+        xp_gained_by_language.clear();
+    }
+
+    async fn send_pulse_internal(&self, pulse: &Pulse) -> Result<()> {
+        let mut pulse_url = self.config.api_url.clone();
+        pulse_url.set_path("/api/my/pulses");
+
+        self.http_client
             .post(pulse_url)
+            .timeout(Duration::from_secs(10))
             .header("User-Agent", self.user_agent().await)
             .header("X-API-Token", &self.config.api_token)
             .json(&pulse)
             .send()
-            .await
-        {
-            Ok(response) => {
-                if response.status().is_success() {
-                    self.client
-                        .log_message(MessageType::INFO, "XP pulse sent successfully")
-                        .await;
+            .await?
+            .error_for_status()?;
 
-                    xp_gained_by_language.clear();
-                } else {
-                    self.client
-                        .log_message(MessageType::ERROR, "Failed to send XP pulse")
-                        .await;
-                }
-            }
-            Err(err) => {
-                self.client
-                    .log_message(
-                        MessageType::ERROR,
-                        format!("Error sending XP pulse: {}", err),
-                    )
-                    .await;
-            }
-        }
+        Ok(())
     }
 }
 
@@ -284,10 +337,18 @@ async fn main() -> Result<()> {
     let stdout = tokio::io::stdout();
 
     let (pulse_tx, mut pulse_rx) = mpsc::channel::<()>(100);
+    let pulse_cache = PulseCache::new()?;
 
     let (service, socket) = LspService::new({
         let pulse_tx = pulse_tx.clone();
-        |client| Arc::new(CodeStatsLanguageServer::new(client, config, pulse_tx))
+        |client| {
+            Arc::new(CodeStatsLanguageServer::new(
+                client,
+                config,
+                pulse_tx,
+                pulse_cache,
+            ))
+        }
     });
 
     // Spawn a task to periodically flush any pending XP in the queue.
@@ -298,6 +359,27 @@ async fn main() -> Result<()> {
             loop {
                 interval.tick().await;
                 pulse_tx.send(()).await.ok();
+            }
+        }
+    });
+
+    // Spawn a task to periodically send any cached pulses.
+    tokio::spawn({
+        let server = service.inner().clone();
+        async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+
+                if let Err(err) = server.send_cached_pulses().await {
+                    server
+                        .client
+                        .log_message(
+                            MessageType::ERROR,
+                            format!("Error sending cached XP pulses: {err}"),
+                        )
+                        .await;
+                }
             }
         }
     });
