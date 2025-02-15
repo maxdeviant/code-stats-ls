@@ -135,7 +135,7 @@ impl CodeStatsLanguageServer {
             "lfe" => Some("LFE".to_string()),
             "lua" => Some("Lua".to_string()),
             "md" | "markdown" => Some("Markdown".to_string()),
-            "ml" => Some("OCaml".to_string()),
+            "ml" | "mli" => Some("OCaml".to_string()),
             "nim" => Some("Nim".to_string()),
             "nix" => Some("Nix".to_string()),
             "php" => Some("PHP".to_string()),
