@@ -115,6 +115,7 @@ impl CodeStatsLanguageServer {
             "fs" | "fsi" | "fsx" => Some("F#".to_string()),
             "gd" => Some("GDScript".to_string()),
             "gleam" => Some("Gleam".to_string()),
+            "glsl" => Some("GLSL".to_string()),
             "go" => Some("Go".to_string()),
             "graphql" | "gql" => Some("GraphQL".to_string()),
             "hbs" => Some("Handlebars".to_string()),
