@@ -41,6 +41,7 @@ pub fn language_for_extension(extension: &str) -> Option<&'static str> {
         "kt" | "ktm" | "kts" => Some("Kotlin"),
         "less" => Some("Less"),
         "lfe" => Some("LFE"),
+        "lisp" => Some("Common Lisp"),
         "lua" => Some("Lua"),
         "md" | "markdown" => Some("Markdown"),
         "ml" | "mli" => Some("OCaml"),
