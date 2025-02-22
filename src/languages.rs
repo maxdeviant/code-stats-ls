@@ -37,6 +37,7 @@ pub fn language_for_extension(extension: &str) -> Option<&'static str> {
         "js" | "mjs" | "cjs" => Some("JavaScript"),
         "json" => Some("JSON"),
         "jsx" => Some("JavaScript (React)"),
+        "kdl" => Some("KDL"),
         "kt" | "ktm" | "kts" => Some("Kotlin"),
         "less" => Some("Less"),
         "lfe" => Some("LFE"),
