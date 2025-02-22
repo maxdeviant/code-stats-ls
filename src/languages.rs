@@ -43,6 +43,7 @@ pub fn language_for_extension(extension: &str) -> Option<&'static str> {
         "lua" => Some("Lua"),
         "md" | "markdown" => Some("Markdown"),
         "ml" | "mli" => Some("OCaml"),
+        "ncl" => Some("Nickel"),
         "nim" => Some("Nim"),
         "nix" => Some("Nix"),
         "php" => Some("PHP"),
