@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added support for more languages:
+  - Svelte
+
 ## [0.4.2] - 2025-02-22
 
 ### Added

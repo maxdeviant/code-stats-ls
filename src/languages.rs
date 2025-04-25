@@ -63,6 +63,7 @@ pub fn language_for_extension(extension: &str) -> Option<&'static str> {
         "sh" => Some("Shell"),
         "sql" => Some("SQL"),
         "svg" => Some("SVG"),
+        "svelte" => Some("Svelte"),
         "swift" => Some("Swift"),
         "tex" => Some("LaTeX"),
         "toml" => Some("TOML"),
