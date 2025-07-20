@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added support for more languages:
+  - WGSL
+
 ## [0.4.3] - 2025-05-15
 
 ### Added
