@@ -74,6 +74,7 @@ pub fn language_for_extension(extension: &str) -> Option<&'static str> {
         "vala" => Some("Vala"),
         "vb" => Some("Visual Basic"),
         "vue" => Some("Vue"),
+        "wgsl" => Some("WGSL"),
         "wit" => Some("WIT"),
         "xml" => Some("XML"),
         "yaml" | "yml" => Some("YAML"),
