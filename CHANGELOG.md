@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added support for more languages:
+  - Astro
   - Svelte
 
 ## [0.4.2] - 2025-02-22
