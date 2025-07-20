@@ -3,6 +3,7 @@ pub fn language_for_extension(extension: &str) -> Option<&'static str> {
     match extension {
         "asciidoc" | "adoc" => Some("AsciiDoc"),
         "asm" => Some("Assembly"),
+        "astro" => Some("Astro"),
         "c" | "h" => Some("C"),
         "clj" => Some("Clojure"),
         "coq" => Some("Coq"),
