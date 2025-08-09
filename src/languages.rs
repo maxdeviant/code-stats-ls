@@ -18,7 +18,7 @@ pub fn language_for_extension(extension: &str) -> Option<&'static str> {
         "el" => Some("Emacs Lisp"),
         "elm" => Some("Elm"),
         "erl" => Some("Erlang"),
-        "ex" => Some("Elixir"),
+        "ex"  | "exs" => Some("Elixir"),
         "fish" => Some("Fish"),
         "fs" | "fsi" | "fsx" => Some("F#"),
         "gd" => Some("GDScript"),
