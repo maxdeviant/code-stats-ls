@@ -50,6 +50,7 @@ pub fn language_for_extension(extension: &str) -> Option<&'static str> {
         "nim" => Some("Nim"),
         "nix" => Some("Nix"),
         "php" => Some("PHP"),
+        "pl" => Some("Prolog"),
         "ps1" => Some("PowerShell"),
         "purs" => Some("PureScript"),
         "py" => Some("Python"),
