@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use heed::types::SerdeBincode;
 use heed::{Database, EnvOpenOptions};
 
-use crate::Pulse;
+use crate::pulse::Pulse;
 
 pub struct PulseCache {
     env: heed::Env,
@@ -38,6 +38,7 @@ impl PulseCache {
         Ok(Self { database, env })
     }
 
+    #[cfg(test)]
     pub fn list(&self) -> Result<Vec<Pulse>> {
         let tx = self.env.read_txn()?;
         let pulses = self
@@ -57,6 +58,27 @@ impl PulseCache {
         Ok(())
     }
 
+    /// Removes up to `limit` of the oldest pulses from the cache and returns them.
+    ///
+    /// This happens in a single write transaction, so concurrent processes will
+    /// never take the same pulse.
+    pub fn take(&self, limit: usize) -> Result<Vec<Pulse>> {
+        let mut tx = self.env.write_txn()?;
+        let entries = self
+            .database
+            .iter(&tx)?
+            .take(limit)
+            .collect::<heed::Result<Vec<_>>>()?;
+
+        for (key, _) in &entries {
+            self.database.delete(&mut tx, key)?;
+        }
+        tx.commit()?;
+
+        Ok(entries.into_iter().map(|(_, pulse)| pulse).collect())
+    }
+
+    #[cfg(test)]
     pub fn remove(&self, pulse: &Pulse) -> Result<()> {
         let mut tx = self.env.write_txn()?;
         self.database.delete(&mut tx, &pulse.coded_at)?;
@@ -79,7 +101,7 @@ impl PulseCache {
 mod tests {
     use chrono::Local;
 
-    use crate::PulseXp;
+    use crate::pulse::PulseXp;
 
     use super::*;
 
@@ -122,6 +144,16 @@ mod tests {
 
         let pulses = pulse_cache.list().unwrap();
         assert_eq!(pulses.len(), 1);
+
+        pulse_cache.save(&second_pulse).unwrap();
+
+        let taken = pulse_cache.take(1).unwrap();
+        assert_eq!(taken.len(), 1);
+        assert_eq!(taken[0].coded_at, first_pulse.coded_at);
+
+        let pulses = pulse_cache.list().unwrap();
+        assert_eq!(pulses.len(), 1);
+        assert_eq!(pulses[0].coded_at, second_pulse.coded_at);
 
         pulse_cache.clear().unwrap();
 

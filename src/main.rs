@@ -1,6 +1,8 @@
 mod cache;
 mod config;
+mod hook;
 mod languages;
+mod pulse;
 
 use std::collections::HashMap;
 use std::env;
@@ -9,8 +11,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use chrono::Local;
-use clap::Parser;
-use serde::{Deserialize, Serialize};
+use clap::{Parser, Subcommand};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tower_lsp::jsonrpc;
 use tower_lsp::lsp_types::*;
@@ -19,23 +20,11 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 use crate::cache::PulseCache;
 use crate::config::Config;
 use crate::languages::language_for_extension;
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Pulse {
-    coded_at: String,
-    xps: Vec<PulseXp>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct PulseXp {
-    pub language: String,
-    pub xp: u32,
-}
+use crate::pulse::{Pulse, PulseSender, PulseXp};
 
 struct CodeStatsLanguageServer {
     client: Client,
-    http_client: reqwest::Client,
-    config: Config,
+    pulse_sender: PulseSender,
     client_info: Arc<RwLock<Option<ClientInfo>>>,
     xp_gained_by_language: Arc<Mutex<HashMap<String, u32>>>,
     pulse_tx: mpsc::Sender<()>,
@@ -51,8 +40,7 @@ impl CodeStatsLanguageServer {
     ) -> Self {
         Self {
             client,
-            http_client: reqwest::Client::new(),
-            config,
+            pulse_sender: PulseSender::new(config, Duration::from_secs(10)),
             client_info: Arc::new(RwLock::new(None)),
             xp_gained_by_language: Arc::new(Mutex::new(HashMap::new())),
             pulse_tx,
@@ -99,17 +87,22 @@ impl CodeStatsLanguageServer {
     }
 
     async fn send_cached_pulses(&self) -> Result<()> {
-        let pulses = self.pulse_cache.list()?;
+        // Take the pulses out of the cache (rather than just listing them) so
+        // that other processes sharing the cache (e.g., the Claude Code hook)
+        // don't send them too.
+        let pulses = self.pulse_cache.take(usize::MAX)?;
+        let user_agent = self.user_agent().await;
 
         let mut sent_count = 0;
 
         for pulse in pulses {
-            match self.send_pulse_internal(&pulse).await {
+            match self.pulse_sender.send(&pulse, &user_agent).await {
                 Ok(()) => {
-                    self.pulse_cache.remove(&pulse)?;
                     sent_count += 1;
                 }
                 Err(err) => {
+                    self.pulse_cache.save(&pulse)?;
+
                     self.client
                         .log_message(
                             MessageType::ERROR,
@@ -159,10 +152,9 @@ impl CodeStatsLanguageServer {
                 .collect(),
         };
 
-        let mut pulse_url = self.config.api_url.clone();
-        pulse_url.set_path("/api/my/pulses");
+        let user_agent = self.user_agent().await;
 
-        match self.send_pulse_internal(&pulse).await {
+        match self.pulse_sender.send(&pulse, &user_agent).await {
             Ok(()) => {
                 self.client
                     .log_message(MessageType::INFO, "XP pulse sent successfully")
@@ -178,23 +170,6 @@ impl CodeStatsLanguageServer {
         }
 
         xp_gained_by_language.clear();
-    }
-
-    async fn send_pulse_internal(&self, pulse: &Pulse) -> Result<()> {
-        let mut pulse_url = self.config.api_url.clone();
-        pulse_url.set_path("/api/my/pulses");
-
-        self.http_client
-            .post(pulse_url)
-            .timeout(Duration::from_secs(10))
-            .header("User-Agent", self.user_agent().await)
-            .header("X-API-Token", &self.config.api_token)
-            .json(&pulse)
-            .send()
-            .await?
-            .error_for_status()?;
-
-        Ok(())
     }
 }
 
@@ -253,14 +228,32 @@ impl LanguageServer for CodeStatsLanguageServer {
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
-struct Cli {}
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Records XP from a Claude Code `PostToolUse` hook.
+    ///
+    /// Reads the hook input JSON from stdin.
+    Hook,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let _cli = Cli::parse();
+    let cli = Cli::parse();
 
     let config = Config::read()?;
 
+    match cli.command {
+        Some(Command::Hook) => hook::run(config).await,
+        None => run_language_server(config).await,
+    }
+}
+
+async fn run_language_server(config: Config) -> Result<()> {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 

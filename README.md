@@ -33,3 +33,24 @@ The following values are configurable:
 | --------- | ----------------- | ---------------------- | ----------------------- |
 | API Token | `api_token`       | `CODE_STATS_API_TOKEN` | None                    |
 | API URL   | `api_url`         | `CODE_STATS_API_URL`   | `https://codestats.net` |
+
+## Claude Code
+
+Claude Code writes files directly to disk, so the language server running in your editor won't see most of its edits.
+
+To track XP for code written by Claude Code, add a [`PostToolUse` hook](https://code.claude.com/docs/en/hooks) to your `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [{ "type": "command", "command": "code-stats-ls hook" }]
+      }
+    ]
+  }
+}
+```
+
+XP is awarded at one point per character written, in the language of the edited file. Pulses that fail to send (e.g., when offline) are cached and sent later.

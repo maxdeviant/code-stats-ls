@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added a `hook` subcommand for tracking XP from Claude Code via a `PostToolUse` hook.
+
 ## [0.5.0] - 2026-09-25
 
 - Dropped unnecessary `openssl` dependency.
