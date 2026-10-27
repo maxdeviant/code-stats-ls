@@ -40,6 +40,7 @@ pub fn language_for_extension(extension: &str) -> Option<&'static str> {
         "jsx" => Some("JavaScript (React)"),
         "kdl" => Some("KDL"),
         "kt" | "ktm" | "kts" => Some("Kotlin"),
+        "lean" => Some("Lean"),
         "less" => Some("Less"),
         "lfe" => Some("LFE"),
         "lisp" => Some("Common Lisp"),
